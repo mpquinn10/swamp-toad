@@ -53,26 +53,55 @@ but won't say to themselves.`;
 
 const RATE_LIMIT_MESSAGE = "You've had enough wisdom for one day. Come back tomorrow.";
 
-// Exhale sound — generated once and cached for the server's lifetime
-let cachedExhale = null;
+// ── Exhale cache ──────────────────────────────────────────────
+// Cached in memory + written to /tmp so it survives warm instance reuse on Vercel
+let cachedExhaleB64 = null;
+const EXHALE_TMP = '/tmp/swamptoad_exhale.mp3';
 
 async function getExhale(key) {
-  if (cachedExhale) return cachedExhale;
+  if (cachedExhaleB64) return cachedExhaleB64;
+  try {
+    cachedExhaleB64 = fs.readFileSync(EXHALE_TMP).toString('base64');
+    return cachedExhaleB64;
+  } catch (_) {}
   try {
     const r = await fetch('https://api.elevenlabs.io/v1/sound-generation', {
       method: 'POST',
       headers: { 'xi-api-key': key, 'Content-Type': 'application/json', 'Accept': 'audio/mpeg' },
       body: JSON.stringify({ text: 'slow deep smoky exhale, pipe smoke breath out, gravelly', duration_seconds: 2.5, prompt_influence: 0.3 }),
     });
-    if (r.ok) cachedExhale = Buffer.from(await r.arrayBuffer()).toString('base64');
+    if (r.ok) {
+      const buf = Buffer.from(await r.arrayBuffer());
+      cachedExhaleB64 = buf.toString('base64');
+      try { fs.writeFileSync(EXHALE_TMP, buf); } catch (_) {}
+    }
   } catch (e) {
-    console.error(`[${new Date().toISOString()}] Exhale cache error:`, e.message);
+    console.error(`[${new Date().toISOString()}] Exhale error:`, e.message);
   }
-  return cachedExhale;
+  return cachedExhaleB64;
 }
 
-// In-memory rate limiting
-const ipRequests = new Map(); // ip -> count for today
+// ── Rate limiting ─────────────────────────────────────────────
+// Uses Vercel KV when KV_REST_API_URL + KV_REST_API_TOKEN are set,
+// falls back to in-memory (works locally, degrades gracefully without KV)
+let kvClient = null;
+try {
+  if (process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN) {
+    const { createClient } = require('@vercel/kv');
+    kvClient = createClient({
+      url: process.env.KV_REST_API_URL,
+      token: process.env.KV_REST_API_TOKEN,
+    });
+    console.log('Rate limiting: Vercel KV');
+  } else {
+    console.log('Rate limiting: in-memory');
+  }
+} catch (e) {
+  console.log('Rate limiting: in-memory (KV init failed)');
+}
+
+// In-memory fallback
+const ipRequests = new Map();
 let dailyTotal = 0;
 let lastResetDate = new Date().toDateString();
 
@@ -86,43 +115,72 @@ function resetIfNewDay() {
   }
 }
 
+function dayKey() {
+  return new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+}
+
+function secondsUntilMidnight() {
+  const now = new Date();
+  const midnight = new Date(now);
+  midnight.setHours(24, 0, 0, 0);
+  return Math.floor((midnight - now) / 1000);
+}
+
+async function checkLimit(ip) {
+  if (kvClient) {
+    const [daily, ipCount] = await Promise.all([
+      kvClient.get(`st:daily:${dayKey()}`),
+      kvClient.get(`st:ip:${ip}:${dayKey()}`),
+    ]);
+    return { daily: daily || 0, ipCount: ipCount || 0 };
+  }
+  resetIfNewDay();
+  return { daily: dailyTotal, ipCount: ipRequests.get(ip) || 0 };
+}
+
+async function incrementLimit(ip) {
+  if (kvClient) {
+    const ttl = secondsUntilMidnight();
+    const dKey = `st:daily:${dayKey()}`;
+    const iKey = `st:ip:${ip}:${dayKey()}`;
+    const [d, i] = await Promise.all([kvClient.incr(dKey), kvClient.incr(iKey)]);
+    const expires = [];
+    if (d === 1) expires.push(kvClient.expire(dKey, ttl));
+    if (i === 1) expires.push(kvClient.expire(iKey, ttl));
+    if (expires.length) await Promise.all(expires);
+    return;
+  }
+  resetIfNewDay();
+  ipRequests.set(ip, (ipRequests.get(ip) || 0) + 1);
+  dailyTotal++;
+}
+
 function maskIp(ip) {
   if (!ip) return 'unknown';
   const parts = ip.split('.');
-  if (parts.length === 4) {
-    return `${parts[0]}.${parts[1]}.*.*`;
-  }
+  if (parts.length === 4) return `${parts[0]}.${parts[1]}.*.*`;
   return ip.substring(0, 6) + '***';
 }
 
 app.post('/api/ask', async (req, res) => {
-  resetIfNewDay();
-
   const ip = req.headers['x-forwarded-for']?.split(',')[0].trim() || req.socket.remoteAddress || 'unknown';
   const question = (req.body.question || '').trim();
 
-  if (!question) {
-    return res.status(400).json({ error: 'Say something. The swamp waits.' });
-  }
+  if (!question) return res.status(400).json({ error: 'Say something. The swamp waits.' });
+  if (question.length > 500) return res.status(400).json({ error: 'Too many words. Ask simpler.' });
 
-  if (question.length > 500) {
-    return res.status(400).json({ error: 'Too many words. Ask simpler.' });
-  }
+  const { daily, ipCount } = await checkLimit(ip);
 
-  // Hard daily cap across all users
-  if (dailyTotal >= 500) {
+  if (daily >= 500) {
     console.log(`[${new Date().toISOString()}] Daily cap hit. Turning away: ${maskIp(ip)}`);
     return res.status(429).json({ error: RATE_LIMIT_MESSAGE });
   }
-
-  // Per-IP daily limit
-  const ipCount = ipRequests.get(ip) || 0;
   if (ipCount >= 10) {
     console.log(`[${new Date().toISOString()}] IP limit hit: ${maskIp(ip)}`);
     return res.status(429).json({ error: RATE_LIMIT_MESSAGE });
   }
 
-  console.log(`[${new Date().toISOString()}] IP: ${maskIp(ip)} | IP count: ${ipCount + 1}/10 | Daily: ${dailyTotal + 1}/500`);
+  console.log(`[${new Date().toISOString()}] IP: ${maskIp(ip)} | IP count: ${ipCount + 1}/10 | Daily: ${daily + 1}/500`);
 
   try {
     const message = await client.messages.create({
@@ -132,13 +190,10 @@ app.post('/api/ask', async (req, res) => {
       messages: [{ role: 'user', content: question }],
     });
 
-    // Update counters only after successful call
-    ipRequests.set(ip, ipCount + 1);
-    dailyTotal++;
+    await incrementLimit(ip);
 
     const response = message.content[0].text;
 
-    // ElevenLabs TTS + sound effects
     let audio = null;
     let exhale = null;
     let soundEffects = [];
@@ -146,14 +201,12 @@ app.post('/api/ask', async (req, res) => {
     if (process.env.ELEVENLABS_API_KEY) {
       const key = process.env.ELEVENLABS_API_KEY;
       try {
-        // Extract *actions* and strip them from spoken text
         const actions = [];
         const spokenText = response.replace(/\*([^*]+)\*/g, (_, a) => {
           actions.push(a.trim());
           return '';
         }).replace(/\s{2,}/g, ' ').trim();
 
-        // Fire TTS + exhale + non-drag sound effects in parallel
         const [ttsAudio, exhaleAudio, ...sfxAudios] = await Promise.all([
           (async () => {
             const r = await fetch('https://api.elevenlabs.io/v1/text-to-speech/Q2RUKfy4Zwg6YGnxO4ER', {
@@ -200,7 +253,7 @@ app.post('/api/ask', async (req, res) => {
   }
 });
 
-// Email subscribe — appends to emails.txt
+// Email subscribe — logged to console (visible in Vercel function logs)
 app.post('/api/subscribe', (req, res) => {
   const email = (req.body.email || '').trim().toLowerCase();
 
@@ -208,17 +261,8 @@ app.post('/api/subscribe', (req, res) => {
     return res.status(400).json({ error: 'The swamp needs a real address.' });
   }
 
-  const line = `${new Date().toISOString()} | ${email}\n`;
-  const file = path.join(__dirname, 'emails.txt');
-
-  try {
-    fs.appendFileSync(file, line);
-    console.log(`[${new Date().toISOString()}] Subscriber: ${email.substring(0, 4)}***`);
-    res.json({ success: true });
-  } catch (err) {
-    console.error('Email log error:', err.message);
-    res.status(500).json({ error: 'Something stirred in the swamp. Try again.' });
-  }
+  console.log(`[SUBSCRIBER] ${new Date().toISOString()} | ${email}`);
+  res.json({ success: true });
 });
 
 // Serve index.html for all other routes
