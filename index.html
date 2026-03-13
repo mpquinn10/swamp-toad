@@ -418,8 +418,26 @@
     /* ── Mobile ──────────────────────────────────────────── */
 
     @media (max-width: 480px) {
+      .hero-img {
+        object-position: center 38%;
+      }
+
+      .hero-fade {
+        background: linear-gradient(
+          to bottom,
+          #060908          0%,
+          rgba(6,9,8,.80)  8%,
+          rgba(6,9,8,.15)  18%,
+          rgba(6,9,8,0)    25%,
+          rgba(6,9,8,0)    58%,
+          rgba(6,9,8,.70)  68%,
+          rgba(6,9,8,.92)  76%,
+          #060908          84%
+        );
+      }
+
       .content-block {
-        top: 52%;
+        top: 60%;
         padding: 28px 24px 32px;
         border-radius: 16px;
       }
