@@ -646,7 +646,7 @@
         const data = await res.json();
         emailCapture.style.display = 'none';
         emailConfirm.textContent = (res.ok && data.success)
-          ? 'Swamp Toad will find you.'
+          ? 'Swamp Toad will find you. Check your inbox and confirm.'
           : (data.error || 'The swamp is restless. Try again.');
         emailConfirm.classList.add('visible');
       } catch {
