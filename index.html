@@ -1,0 +1,665 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Swamp Toad</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600&family=Spectral:ital,wght@0,300;0,400;0,500;1,300;1,400&display=swap" rel="stylesheet">
+
+  <style>
+    :root {
+      --void:         #060908;
+      --fog:          rgba(140, 170, 120, 0.032);
+      --gold:         #D4860A;
+      --gold-bright:  #F0A020;
+      --gold-dim:     #8a5206;
+      --warm-white:   #E8D5B0;
+      --warm-muted:   rgba(232, 213, 176, 0.50);
+      --amber-border: rgba(212, 134, 10, 0.60);
+      --amber-lit:    rgba(212, 134, 10, 0.90);
+      --amber-glow:   rgba(212, 134, 10, 0.12);
+    }
+
+    *, *::before, *::after {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    html {
+      height: 100%;
+      overflow: hidden;
+    }
+
+    body {
+      height: 100%;
+      overflow-x: hidden;
+      background: var(--void);
+      font-family: 'Spectral', Georgia, serif;
+      font-weight: 300;
+    }
+
+    /* ── Background image ───────────────────────────────── */
+
+    .hero-bg {
+      position: fixed;
+      inset: 0;
+      z-index: 0;
+    }
+
+    .hero-img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      object-position: center 28%;
+      display: block;
+    }
+
+    .hero-fade {
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(
+        to bottom,
+        #060908          0%,
+        rgba(6,9,8,.82)  13%,
+        rgba(6,9,8,.22)  24%,
+        rgba(6,9,8,0)    30%,
+        rgba(6,9,8,0)    50%,
+        rgba(6,9,8,.60)  58%,
+        rgba(6,9,8,.88)  66%,
+        #060908          76%
+      );
+    }
+
+    /* ── Atmosphere ─────────────────────────────────────── */
+
+    .fog-layer {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: 1;
+      overflow: hidden;
+    }
+
+    .fog-layer::before,
+    .fog-layer::after {
+      content: '';
+      position: absolute;
+      width: 200%;
+      height: 100%;
+      background: repeating-linear-gradient(
+        180deg, transparent 0%, var(--fog) 30%, transparent 60%
+      );
+      filter: blur(40px);
+    }
+
+    .fog-layer::before {
+      top: -20%; left: -50%;
+      animation: driftA 28s ease-in-out infinite alternate;
+      opacity: 0.8;
+    }
+
+    .fog-layer::after {
+      top: 10%; left: -20%;
+      animation: driftB 38s ease-in-out infinite alternate;
+      opacity: 0.5;
+    }
+
+    @keyframes driftA {
+      from { transform: translateX(0) translateY(0); }
+      to   { transform: translateX(8%) translateY(4%); }
+    }
+
+    @keyframes driftB {
+      from { transform: translateX(0) translateY(0); }
+      to   { transform: translateX(-10%) translateY(-5%); }
+    }
+
+    /* Grain texture */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='1'/%3E%3C/svg%3E");
+      opacity: 0.026;
+      pointer-events: none;
+      z-index: 2;
+    }
+
+    /* ── UI layer ────────────────────────────────────────── */
+
+    .ui {
+      position: fixed;
+      inset: 0;
+      z-index: 3;
+      overflow-y: auto;
+      /* padding so content can scroll past the bottom */
+      padding-bottom: 48px;
+    }
+
+    /* ── Content block — dark pill overlay ──────────────── */
+
+    .content-block {
+      position: absolute;
+      top: 57%;
+      left: 0;
+      right: 0;
+      width: min(480px, 88vw);
+      margin: 0 auto;
+      background: rgba(0, 0, 0, 0.45);
+      backdrop-filter: blur(4px);
+      -webkit-backdrop-filter: blur(4px);
+      border-radius: 20px;
+      padding: 36px 40px 40px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0;
+      animation: materialise 2s ease both;
+    }
+
+    /* ── Title & subtitle ───────────────────────────────── */
+
+    .title {
+      font-family: 'Cinzel', serif;
+      font-size: clamp(20px, 3.8vw, 30px);
+      font-weight: 400;
+      letter-spacing: 0.28em;
+      color: var(--gold-bright);
+      text-align: center;
+      text-shadow: 0 0 30px rgba(212,134,10,.35), 0 2px 8px rgba(0,0,0,.8);
+    }
+
+    .subtitle {
+      font-family: 'Spectral', serif;
+      font-style: italic;
+      font-size: 13px;
+      color: var(--warm-white);
+      opacity: 0.7;
+      letter-spacing: 0.08em;
+      text-align: center;
+      margin-top: 6px;
+    }
+
+    /* ── Ask zone ───────────────────────────────────────── */
+
+    .ask-zone {
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 16px;
+      margin-top: 24px;
+    }
+
+    .input-wrap {
+      width: 100%;
+      position: relative;
+    }
+
+    .question-input {
+      width: 100%;
+      background: transparent;
+      border: none;
+      border-bottom: 1px solid var(--amber-border);
+      color: var(--warm-white);
+      font-family: 'Spectral', serif;
+      font-size: 16px;
+      font-weight: 300;
+      font-style: italic;
+      padding: 12px 4px;
+      outline: none;
+      text-align: center;
+      caret-color: var(--gold-bright);
+      transition: border-color 0.4s;
+      -webkit-appearance: none;
+    }
+
+    .question-input::placeholder {
+      color: var(--warm-muted);
+      font-style: italic;
+    }
+
+    .question-input:focus {
+      border-color: var(--amber-lit);
+    }
+
+    .input-glow {
+      position: absolute;
+      bottom: -1px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 0;
+      height: 1px;
+      background: var(--gold-bright);
+      opacity: 0.6;
+      transition: width 0.5s ease;
+      pointer-events: none;
+    }
+
+    .question-input:focus + .input-glow {
+      width: 55%;
+    }
+
+    .ask-button {
+      background: transparent;
+      border: 1px solid var(--amber-border);
+      color: var(--gold-dim);
+      font-family: 'Cinzel', serif;
+      font-size: 10px;
+      letter-spacing: 0.24em;
+      padding: 12px 32px;
+      cursor: pointer;
+      text-transform: uppercase;
+      transition: border-color 0.3s, color 0.3s, box-shadow 0.3s;
+      -webkit-appearance: none;
+    }
+
+    .ask-button:hover:not(:disabled) {
+      border-color: var(--amber-lit);
+      color: var(--gold-bright);
+      box-shadow: 0 0 20px 0 var(--amber-glow);
+    }
+
+    .ask-button:disabled {
+      opacity: 0.3;
+      cursor: default;
+    }
+
+    /* ── Loading ─────────────────────────────────────────── */
+
+    .loading {
+      display: none;
+      align-items: center;
+      gap: 8px;
+      color: var(--gold-dim);
+      font-style: italic;
+      font-size: 13px;
+      letter-spacing: 0.06em;
+    }
+
+    .loading.visible { display: flex; }
+
+    .loading-dots span {
+      display: inline-block;
+      width: 3px;
+      height: 3px;
+      background: var(--gold);
+      border-radius: 50%;
+      margin: 0 2px;
+      animation: pulse 1.4s ease-in-out infinite;
+    }
+
+    .loading-dots span:nth-child(2) { animation-delay: 0.28s; }
+    .loading-dots span:nth-child(3) { animation-delay: 0.56s; }
+
+    @keyframes pulse {
+      0%, 80%, 100% { opacity: 0.2; transform: scale(0.8); }
+      40%            { opacity: 0.9; transform: scale(1); }
+    }
+
+    /* ── Response section ───────────────────────────────── */
+
+    .response-section {
+      display: none;
+      width: 100%;
+      flex-direction: column;
+      align-items: center;
+      margin-top: 28px;
+      opacity: 0;
+      transform: translateY(8px);
+      transition: opacity 1s ease, transform 1s ease;
+    }
+
+    .response-section.visible   { display: flex; }
+    .response-section.faded-in  { opacity: 1; transform: translateY(0); }
+
+    .amber-divider {
+      width: 100%;
+      height: 1px;
+      background: rgba(212, 134, 10, 0.35);
+      margin-bottom: 20px;
+    }
+
+    .response-text {
+      font-size: clamp(14px, 2vw, 16px);
+      font-weight: 300;
+      font-style: italic;
+      line-height: 1.9;
+      color: var(--warm-white);
+      letter-spacing: 0.01em;
+      text-align: center;
+    }
+
+    .response-text.is-error {
+      color: var(--gold-dim);
+    }
+
+    .toad-action {
+      font-style: italic;
+      color: var(--gold-dim);
+      opacity: 0.75;
+    }
+
+    .response-attr {
+      font-family: 'Cinzel', serif;
+      font-size: 9px;
+      letter-spacing: 0.26em;
+      color: var(--gold);
+      margin-top: 16px;
+      text-align: center;
+    }
+
+    /* ── Newsletter section ─────────────────────────────── */
+
+    .newsletter-section {
+      display: none;
+      width: 100%;
+      flex-direction: column;
+      align-items: center;
+      gap: 14px;
+      margin-top: 22px;
+      opacity: 0;
+      transition: opacity 1s ease;
+    }
+
+    .newsletter-section.visible  { display: flex; }
+    .newsletter-section.faded-in { opacity: 1; }
+
+    .newsletter-button {
+      background: transparent;
+      border: 1px solid rgba(212, 134, 10, 0.30);
+      color: rgba(212, 134, 10, 0.55);
+      font-family: 'Cinzel', serif;
+      font-size: 9px;
+      letter-spacing: 0.22em;
+      padding: 9px 22px;
+      cursor: pointer;
+      text-transform: uppercase;
+      transition: border-color 0.3s, color 0.3s;
+      -webkit-appearance: none;
+    }
+
+    .newsletter-button:hover {
+      border-color: var(--amber-border);
+      color: var(--gold);
+    }
+
+    .email-capture {
+      display: none;
+      width: 100%;
+      flex-direction: column;
+      align-items: center;
+      gap: 14px;
+    }
+
+    .email-capture.visible { display: flex; }
+
+    .email-confirm {
+      display: none;
+      color: var(--gold);
+      font-style: italic;
+      font-size: 14px;
+      letter-spacing: 0.04em;
+      text-align: center;
+    }
+
+    .email-confirm.visible { display: block; }
+
+    /* ── Animations ──────────────────────────────────────── */
+
+    @keyframes materialise {
+      from { opacity: 0; transform: translateY(10px); filter: blur(3px); }
+      to   { opacity: 1; transform: translateY(0);    filter: blur(0); }
+    }
+
+    /* ── Mobile ──────────────────────────────────────────── */
+
+    @media (max-width: 480px) {
+      .content-block {
+        top: 52%;
+        padding: 28px 24px 32px;
+        border-radius: 16px;
+      }
+
+      .ask-button,
+      .newsletter-button {
+        width: 100%;
+        padding: 13px;
+        text-align: center;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Background: photo + fade -->
+  <div class="hero-bg" aria-hidden="true">
+    <img class="hero-img" src="swamptoad-3.png" alt="">
+    <div class="hero-fade"></div>
+  </div>
+
+  <!-- Fog -->
+  <div class="fog-layer"></div>
+
+  <!-- UI -->
+  <div class="ui">
+    <div class="content-block">
+
+      <h1 class="title">Swamp Toad</h1>
+      <p class="subtitle">An audience with an ancient being</p>
+
+      <!-- Ask form -->
+      <div class="ask-zone">
+        <form id="askForm" autocomplete="off" style="width:100%;display:flex;flex-direction:column;align-items:center;gap:16px;">
+          <div class="input-wrap">
+            <input
+              class="question-input"
+              id="questionInput"
+              type="text"
+              placeholder="What's on your mind."
+              maxlength="500"
+              autocomplete="off"
+              spellcheck="false"
+            >
+            <div class="input-glow"></div>
+          </div>
+          <button class="ask-button" id="askButton" type="submit">Ask Swamp Toad</button>
+        </form>
+
+        <div class="loading" id="loading" aria-live="polite">
+          <span>The toad considers</span>
+          <div class="loading-dots"><span></span><span></span><span></span></div>
+        </div>
+      </div>
+
+      <!-- Response -->
+      <div class="response-section" id="responseSection">
+        <div class="amber-divider"></div>
+        <p class="response-text" id="responseText"></p>
+        <p class="response-attr">— Swamp Toad</p>
+      </div>
+
+      <!-- Newsletter -->
+      <div class="newsletter-section" id="newsletterSection">
+        <button class="newsletter-button" id="newsletterBtn" type="button">Want more wisdom.</button>
+        <div class="email-capture" id="emailCapture">
+          <div class="input-wrap">
+            <input
+              class="question-input"
+              id="emailInput"
+              type="email"
+              placeholder="your@email.com"
+              autocomplete="email"
+              spellcheck="false"
+            >
+            <div class="input-glow"></div>
+          </div>
+          <button class="ask-button" id="emailSubmit" type="button">Enter the swamp.</button>
+        </div>
+        <p class="email-confirm" id="emailConfirm">Swamp Toad will find you.</p>
+      </div>
+
+    </div><!-- /.content-block -->
+  </div><!-- /.ui -->
+
+  <script>
+    const form            = document.getElementById('askForm');
+    const input           = document.getElementById('questionInput');
+    const button          = document.getElementById('askButton');
+    const loading         = document.getElementById('loading');
+    const responseSection = document.getElementById('responseSection');
+    const responseText    = document.getElementById('responseText');
+    const newsletterSection = document.getElementById('newsletterSection');
+    const newsletterBtn   = document.getElementById('newsletterBtn');
+    const emailCapture    = document.getElementById('emailCapture');
+    const emailInput      = document.getElementById('emailInput');
+    const emailSubmit     = document.getElementById('emailSubmit');
+    const emailConfirm    = document.getElementById('emailConfirm');
+
+    // ── Audio playback ───────────────────────────────────
+    const dragAudio = new Audio('/drag.mp3');
+    dragAudio.loop = true;
+
+    function stopDrag() {
+      dragAudio.pause();
+      dragAudio.currentTime = 0;
+    }
+
+    function playAudioSequence(exhale, soundEffects, ttsAudio) {
+      stopDrag();
+      if (window._toadAudio) { window._toadAudio.pause(); window._toadAudio = null; }
+
+      const queue = [];
+      if (exhale)       queue.push(exhale);
+      soundEffects.forEach(s => queue.push(s));
+
+      let chain = Promise.resolve();
+
+      for (const b64 of queue) {
+        chain = chain.then(() => new Promise(resolve => {
+          const a = new Audio(`data:audio/mpeg;base64,${b64}`);
+          a.onended = resolve;
+          a.onerror = resolve;
+          a.play().catch(resolve);
+        }));
+      }
+
+      if (ttsAudio) {
+        chain = chain.then(() => {
+          const a = new Audio(`data:audio/mpeg;base64,${ttsAudio}`);
+          window._toadAudio = a;
+          a.play().catch(() => {});
+        });
+      }
+    }
+
+    // ── Ask ──────────────────────────────────────────────
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const question = input.value.trim();
+      if (!question) return;
+
+      // Reset state
+      button.disabled = true;
+      loading.classList.add('visible');
+      dragAudio.currentTime = 0;
+      dragAudio.play().catch(() => {});
+      responseSection.classList.remove('visible', 'faded-in');
+      newsletterSection.classList.remove('visible', 'faded-in');
+      responseText.classList.remove('is-error');
+
+      try {
+        const res  = await fetch('/api/ask', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ question }),
+        });
+        const data = await res.json();
+        if (!res.ok || data.error) {
+          responseText.textContent = data.error || 'The swamp is quiet right now. Try again.';
+          responseText.classList.add('is-error');
+        } else {
+          // Render asterisked actions as styled spans
+          const escaped = data.response
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+          responseText.innerHTML = escaped.replace(/\*([^*]+)\*/g, '<em class="toad-action">*$1*</em>');
+
+          // Play exhale → sound effects → TTS in sequence
+          playAudioSequence(data.exhale, data.soundEffects || [], data.audio);
+        }
+      } catch {
+        stopDrag();
+        responseText.textContent = 'The swamp is quiet right now. Try again.';
+        responseText.classList.add('is-error');
+      }
+
+      loading.classList.remove('visible');
+
+      // Fade in response
+      responseSection.classList.add('visible');
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        responseSection.classList.add('faded-in');
+      }));
+
+      // Fade in newsletter button after a beat
+      if (!responseText.classList.contains('is-error')) {
+        setTimeout(() => {
+          newsletterSection.classList.add('visible');
+          requestAnimationFrame(() => requestAnimationFrame(() => {
+            newsletterSection.classList.add('faded-in');
+          }));
+        }, 1600);
+      }
+
+      button.disabled = false;
+    });
+
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        form.dispatchEvent(new Event('submit'));
+      }
+    });
+
+    // ── Newsletter ───────────────────────────────────────
+    newsletterBtn.addEventListener('click', () => {
+      newsletterBtn.style.display = 'none';
+      emailCapture.classList.add('visible');
+      emailInput.focus();
+    });
+
+    emailSubmit.addEventListener('click', async () => {
+      const email = emailInput.value.trim();
+      if (!email) return;
+
+      emailSubmit.disabled = true;
+
+      try {
+        const res  = await fetch('/api/subscribe', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email }),
+        });
+        const data = await res.json();
+        emailCapture.style.display = 'none';
+        emailConfirm.textContent = (res.ok && data.success)
+          ? 'Swamp Toad will find you.'
+          : (data.error || 'Something stirred in the swamp. Try again.');
+        emailConfirm.classList.add('visible');
+      } catch {
+        emailCapture.style.display = 'none';
+        emailConfirm.textContent = 'Something stirred in the swamp. Try again.';
+        emailConfirm.classList.add('visible');
+      }
+    });
+
+    emailInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') emailSubmit.click();
+    });
+  </script>
+
+</body>
+</html>
