@@ -455,7 +455,10 @@
 
   <!-- Background: photo + fade -->
   <div class="hero-bg" aria-hidden="true">
-    <img class="hero-img" src="swamptoad-3.jpg" alt="">
+    <picture>
+      <source media="(max-width: 480px)" srcset="swamptoad-mobile.jpg">
+      <img class="hero-img" src="swamptoad-3.jpg" alt="">
+    </picture>
     <div class="hero-fade"></div>
   </div>
 
