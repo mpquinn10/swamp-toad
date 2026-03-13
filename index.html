@@ -647,11 +647,11 @@
         emailCapture.style.display = 'none';
         emailConfirm.textContent = (res.ok && data.success)
           ? 'Swamp Toad will find you.'
-          : (data.error || 'Something stirred in the swamp. Try again.');
+          : (data.error || 'The swamp is restless. Try again.');
         emailConfirm.classList.add('visible');
       } catch {
         emailCapture.style.display = 'none';
-        emailConfirm.textContent = 'Something stirred in the swamp. Try again.';
+        emailConfirm.textContent = 'The swamp is restless. Try again.';
         emailConfirm.classList.add('visible');
       }
     });

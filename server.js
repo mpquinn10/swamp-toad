@@ -253,16 +253,51 @@ app.post('/api/ask', async (req, res) => {
   }
 });
 
-// Email subscribe — logged to console (visible in Vercel function logs)
-app.post('/api/subscribe', (req, res) => {
+// Email subscribe — posts to BeehiiV API
+app.post('/api/subscribe', async (req, res) => {
   const email = (req.body.email || '').trim().toLowerCase();
 
   if (!email || !email.includes('@') || !email.includes('.')) {
     return res.status(400).json({ error: 'The swamp needs a real address.' });
   }
 
-  console.log(`[SUBSCRIBER] ${new Date().toISOString()} | ${email}`);
-  res.json({ success: true });
+  const apiKey = process.env.BEEHIIV_API_KEY;
+  const pubId  = process.env.BEEHIIV_PUBLICATION_ID;
+
+  if (!apiKey || !pubId) {
+    console.error('BeehiiV env vars not set');
+    return res.status(500).json({ error: 'The swamp is restless. Try again.' });
+  }
+
+  try {
+    const r = await fetch(`https://api.beehiiv.com/v2/publications/${pubId}/subscriptions`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        email,
+        reactivate_existing: false,
+        send_welcome_email: true,
+        utm_source: 'swamptoad_web',
+        utm_medium: 'organic',
+        utm_campaign: 'email_capture',
+      }),
+    });
+
+    if (!r.ok) {
+      const body = await r.text();
+      console.error(`[${new Date().toISOString()}] BeehiiV error ${r.status}:`, body);
+      return res.status(500).json({ error: 'The swamp is restless. Try again.' });
+    }
+
+    console.log(`[${new Date().toISOString()}] Subscriber added: ${email.substring(0, 4)}***`);
+    res.json({ success: true });
+  } catch (err) {
+    console.error(`[${new Date().toISOString()}] BeehiiV error:`, err.message);
+    res.status(500).json({ error: 'The swamp is restless. Try again.' });
+  }
 });
 
 // Serve index.html for all other routes

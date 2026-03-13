@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Swamp Toad — Style Guide</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600&family=Spectral:ital,wght@0,300;0,400;0,500;1,300;1,400&display=swap" rel="stylesheet">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      background: #0e1210;
+      color: #E8D5B0;
+      font-family: 'Spectral', Georgia, serif;
+      font-weight: 300;
+      padding: 48px 40px;
+      max-width: 860px;
+    }
+
+    h1 {
+      font-family: 'Cinzel', serif;
+      font-size: 13px;
+      letter-spacing: 0.3em;
+      text-transform: uppercase;
+      color: #D4860A;
+      margin-bottom: 48px;
+    }
+
+    section {
+      margin-bottom: 56px;
+    }
+
+    .section-label {
+      font-family: 'Cinzel', serif;
+      font-size: 9px;
+      letter-spacing: 0.28em;
+      text-transform: uppercase;
+      color: #8a5206;
+      margin-bottom: 20px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid rgba(212,134,10,0.2);
+    }
+
+    /* ── Colors ── */
+    .swatches {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+      gap: 12px;
+    }
+
+    .swatch {
+      border-radius: 6px;
+      overflow: hidden;
+      border: 1px solid rgba(255,255,255,0.06);
+    }
+
+    .swatch-color {
+      height: 64px;
+    }
+
+    .swatch-info {
+      background: rgba(0,0,0,0.4);
+      padding: 10px 12px;
+    }
+
+    .swatch-name {
+      font-family: 'Cinzel', serif;
+      font-size: 8px;
+      letter-spacing: 0.18em;
+      color: #8a5206;
+      text-transform: uppercase;
+    }
+
+    .swatch-value {
+      font-size: 13px;
+      color: #E8D5B0;
+      margin-top: 3px;
+      font-family: 'Courier New', monospace;
+    }
+
+    .swatch-use {
+      font-size: 11px;
+      color: rgba(232,213,176,0.45);
+      margin-top: 3px;
+      font-style: italic;
+    }
+
+    /* ── Typography ── */
+    .type-row {
+      margin-bottom: 28px;
+      padding-bottom: 28px;
+      border-bottom: 1px solid rgba(212,134,10,0.1);
+    }
+
+    .type-row:last-child { border-bottom: none; }
+
+    .type-meta {
+      font-family: 'Courier New', monospace;
+      font-size: 11px;
+      color: rgba(232,213,176,0.4);
+      margin-bottom: 10px;
+    }
+
+    .type-meta span {
+      color: #D4860A;
+    }
+
+    .specimen-title {
+      font-family: 'Cinzel', serif;
+      font-size: 30px;
+      font-weight: 400;
+      letter-spacing: 0.28em;
+      color: #F0A020;
+      text-shadow: 0 0 30px rgba(212,134,10,.35);
+    }
+
+    .specimen-subtitle {
+      font-family: 'Spectral', serif;
+      font-style: italic;
+      font-size: 13px;
+      color: #E8D5B0;
+      opacity: 0.7;
+      letter-spacing: 0.08em;
+      margin-top: 6px;
+    }
+
+    .specimen-body {
+      font-family: 'Spectral', serif;
+      font-size: 16px;
+      font-weight: 300;
+      font-style: italic;
+      line-height: 1.9;
+      color: #E8D5B0;
+      letter-spacing: 0.01em;
+      max-width: 520px;
+    }
+
+    .specimen-attr {
+      font-family: 'Cinzel', serif;
+      font-size: 9px;
+      letter-spacing: 0.26em;
+      color: #D4860A;
+    }
+
+    .specimen-action {
+      font-family: 'Spectral', serif;
+      font-style: italic;
+      color: #8a5206;
+      opacity: 0.75;
+      font-size: 15px;
+    }
+
+    .specimen-button {
+      display: inline-block;
+      background: transparent;
+      border: 1px solid rgba(212, 134, 10, 0.60);
+      color: #8a5206;
+      font-family: 'Cinzel', serif;
+      font-size: 10px;
+      letter-spacing: 0.24em;
+      padding: 12px 32px;
+      text-transform: uppercase;
+      margin-top: 4px;
+    }
+
+    /* ── Values table ── */
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+
+    th {
+      font-family: 'Cinzel', serif;
+      font-size: 8px;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      color: #8a5206;
+      text-align: left;
+      padding: 8px 12px;
+      border-bottom: 1px solid rgba(212,134,10,0.2);
+    }
+
+    td {
+      padding: 10px 12px;
+      border-bottom: 1px solid rgba(255,255,255,0.04);
+      vertical-align: middle;
+    }
+
+    td:first-child { color: rgba(232,213,176,0.5); font-family: 'Courier New', monospace; font-size: 12px; }
+    td:nth-child(2) { color: #E8D5B0; font-family: 'Courier New', monospace; }
+    td:last-child { color: rgba(232,213,176,0.4); font-style: italic; font-size: 12px; }
+  </style>
+</head>
+<body>
+
+  <h1>Swamp Toad — Style Reference</h1>
+
+  <!-- Colors -->
+  <section>
+    <div class="section-label">Colors</div>
+    <div class="swatches">
+      <div class="swatch">
+        <div class="swatch-color" style="background:#060908;"></div>
+        <div class="swatch-info">
+          <div class="swatch-name">Void / Background</div>
+          <div class="swatch-value">#060908</div>
+          <div class="swatch-use">Page background</div>
+        </div>
+      </div>
+      <div class="swatch">
+        <div class="swatch-color" style="background:#F0A020;"></div>
+        <div class="swatch-info">
+          <div class="swatch-name">Gold Bright</div>
+          <div class="swatch-value">#F0A020</div>
+          <div class="swatch-use">Page title, headings</div>
+        </div>
+      </div>
+      <div class="swatch">
+        <div class="swatch-color" style="background:#D4860A;"></div>
+        <div class="swatch-info">
+          <div class="swatch-name">Gold</div>
+          <div class="swatch-value">#D4860A</div>
+          <div class="swatch-use">Attribution, accents, borders</div>
+        </div>
+      </div>
+      <div class="swatch">
+        <div class="swatch-color" style="background:#8a5206;"></div>
+        <div class="swatch-info">
+          <div class="swatch-name">Gold Dim</div>
+          <div class="swatch-value">#8a5206</div>
+          <div class="swatch-use">Buttons, muted labels, actions</div>
+        </div>
+      </div>
+      <div class="swatch">
+        <div class="swatch-color" style="background:#E8D5B0;"></div>
+        <div class="swatch-info">
+          <div class="swatch-name">Warm White</div>
+          <div class="swatch-value">#E8D5B0</div>
+          <div class="swatch-use">Body text, response text</div>
+        </div>
+      </div>
+      <div class="swatch">
+        <div class="swatch-color" style="background:rgba(232,213,176,0.5);"></div>
+        <div class="swatch-info">
+          <div class="swatch-name">Warm Muted</div>
+          <div class="swatch-value">rgba(232,213,176,0.50)</div>
+          <div class="swatch-use">Placeholders, secondary text</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Fonts -->
+  <section>
+    <div class="section-label">Fonts</div>
+
+    <div class="type-row">
+      <div class="type-meta">Cinzel 400 · <span>Google Fonts</span> · Headings, buttons, labels</div>
+      <div class="specimen-title">Swamp Toad</div>
+      <div style="margin-top:12px;">
+        <div class="specimen-attr">— Swamp Toad</div>
+      </div>
+      <div style="margin-top:12px;">
+        <div class="specimen-button">Ask Swamp Toad</div>
+      </div>
+    </div>
+
+    <div class="type-row">
+      <div class="type-meta">Spectral 300 Italic · <span>Google Fonts</span> · Body, subtitles, responses</div>
+      <div class="specimen-subtitle">An audience with an ancient being</div>
+      <div style="margin-top:14px;">
+        <div class="specimen-body">The swamp don't care about your feelings. Neither does the mud. You already know what you need to do — you're just hoping someone will talk you out of it.</div>
+      </div>
+      <div style="margin-top:14px;">
+        <div class="specimen-action">*takes a long slow drag from his pipe*</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Spacing & Sizing -->
+  <section>
+    <div class="section-label">Key Values</div>
+    <table>
+      <tr>
+        <th>Property</th>
+        <th>Value</th>
+        <th>Used for</th>
+      </tr>
+      <tr>
+        <td>Title size</td>
+        <td>clamp(20px, 3.8vw, 30px)</td>
+        <td>Page title — scales with viewport</td>
+      </tr>
+      <tr>
+        <td>Subtitle size</td>
+        <td>13px</td>
+        <td>Tagline below title</td>
+      </tr>
+      <tr>
+        <td>Body/response size</td>
+        <td>clamp(14px, 2vw, 16px)</td>
+        <td>Toad's response text</td>
+      </tr>
+      <tr>
+        <td>Title letter-spacing</td>
+        <td>0.28em</td>
+        <td>Cinzel headings</td>
+      </tr>
+      <tr>
+        <td>Button letter-spacing</td>
+        <td>0.24em</td>
+        <td>CTA buttons</td>
+      </tr>
+      <tr>
+        <td>Line height (body)</td>
+        <td>1.9</td>
+        <td>Response text</td>
+      </tr>
+      <tr>
+        <td>Border radius (pill)</td>
+        <td>20px</td>
+        <td>Content overlay card</td>
+      </tr>
+      <tr>
+        <td>Overlay background</td>
+        <td>rgba(0, 0, 0, 0.45)</td>
+        <td>Dark pill behind UI</td>
+      </tr>
+      <tr>
+        <td>Overlay blur</td>
+        <td>backdrop-filter: blur(4px)</td>
+        <td>Glassmorphism on pill</td>
+      </tr>
+      <tr>
+        <td>Divider color</td>
+        <td>rgba(212, 134, 10, 0.35)</td>
+        <td>Horizontal rule between sections</td>
+      </tr>
+    </table>
+  </section>
+
+  <!-- Google Fonts embed code -->
+  <section>
+    <div class="section-label">Google Fonts Embed</div>
+    <div style="background:rgba(0,0,0,0.4);border:1px solid rgba(212,134,10,0.2);border-radius:6px;padding:16px 20px;">
+      <div style="font-family:'Courier New',monospace;font-size:12px;color:#E8D5B0;line-height:1.8;">
+        &lt;link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600&amp;family=Spectral:ital,wght@0,300;0,400;1,300;1,400&amp;display=swap" rel="stylesheet"&gt;
+      </div>
+    </div>
+  </section>
+
+</body>
+</html>
