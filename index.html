@@ -408,6 +408,39 @@
 
     .email-confirm.visible { display: block; }
 
+    /* ── Fly count ───────────────────────────────────────── */
+
+    .fly-count {
+      font-family: 'Spectral', serif;
+      font-size: 12px;
+      font-style: italic;
+      color: rgba(212, 134, 10, 0.50);
+      letter-spacing: 0.05em;
+      text-align: center;
+      margin-top: 8px;
+      min-height: 18px;
+      transition: color 0.3s;
+    }
+
+    .fly-count.urgent {
+      color: rgba(212, 134, 10, 0.85);
+    }
+
+    .feed-link {
+      background: none;
+      border: none;
+      cursor: pointer;
+      font-family: 'Spectral', serif;
+      font-style: italic;
+      font-size: 12px;
+      letter-spacing: 0.05em;
+      color: var(--gold);
+      text-decoration: underline;
+      padding: 0;
+    }
+
+    .feed-link:hover { color: var(--gold-bright); }
+
     /* ── Animations ──────────────────────────────────────── */
 
     @keyframes materialise {
@@ -488,6 +521,7 @@
             <div class="input-glow"></div>
           </div>
           <button class="ask-button" id="askButton" type="submit">Ask Swamp Toad</button>
+          <p class="fly-count" id="flyCount"></p>
         </form>
 
         <div class="loading" id="loading" aria-live="polite">
@@ -539,6 +573,84 @@
     const emailInput      = document.getElementById('emailInput');
     const emailSubmit     = document.getElementById('emailSubmit');
     const emailConfirm    = document.getElementById('emailConfirm');
+    const flyCountEl      = document.getElementById('flyCount');
+
+    // ── Session token ─────────────────────────────────────
+    function getSessionToken() {
+      let t = localStorage.getItem('toad_session');
+      if (!t) {
+        t = crypto.randomUUID();
+        localStorage.setItem('toad_session', t);
+      }
+      return t;
+    }
+    const SESSION_TOKEN = getSessionToken();
+
+    // ── Fly count ─────────────────────────────────────────
+    let stripeEnabled = false;
+
+    function updateFlyDisplay({ dailyRemaining, bought, total, paymentEnabled }) {
+      if (!flyCountEl) return;
+      if (paymentEnabled !== undefined) stripeEnabled = paymentEnabled;
+
+      if (total <= 0) {
+        flyCountEl.classList.add('urgent');
+        button.disabled = true;
+        if (stripeEnabled) {
+          flyCountEl.innerHTML = 'No flies remain. <button class="feed-link" id="feedBtn">Feed the toad.</button>';
+          document.getElementById('feedBtn')?.addEventListener('click', buyFlies);
+        } else {
+          flyCountEl.textContent = 'No flies remain. Come back tomorrow.';
+        }
+      } else {
+        flyCountEl.classList.remove('urgent');
+        button.disabled = false;
+        const fly = n => `${n} ${n === 1 ? 'fly' : 'flies'}`;
+        if (dailyRemaining > 0 && bought > 0) {
+          flyCountEl.textContent = `${fly(dailyRemaining)} today · ${fly(bought)} in reserve`;
+        } else if (dailyRemaining > 0) {
+          flyCountEl.textContent = `${fly(dailyRemaining)} today`;
+        } else {
+          flyCountEl.textContent = `${fly(bought)} in reserve`;
+        }
+      }
+    }
+
+    async function fetchFlies() {
+      try {
+        const res = await fetch('/api/flies', { headers: { 'X-Session-Token': SESSION_TOKEN } });
+        if (res.ok) updateFlyDisplay(await res.json());
+        else button.disabled = false; // server error fallback
+      } catch (_) {
+        button.disabled = false; // network error fallback
+      }
+    }
+
+    async function buyFlies() {
+      try {
+        const res = await fetch('/api/checkout', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Session-Token': SESSION_TOKEN },
+        });
+        const data = await res.json();
+        if (data.url) window.location.href = data.url;
+      } catch (_) {}
+    }
+
+    // Load fly count on startup
+    fetchFlies();
+
+    // Handle Stripe payment return
+    const _params = new URLSearchParams(window.location.search);
+    if (_params.get('payment') === 'success') {
+      window.history.replaceState({}, '', '/');
+      if (flyCountEl) {
+        flyCountEl.classList.add('urgent');
+        flyCountEl.textContent = 'Flies incoming. The toad is grateful.';
+      }
+      // Webhook may take a moment — re-fetch after a short delay
+      setTimeout(fetchFlies, 2500);
+    }
 
     // ── Audio playback ───────────────────────────────────
     const dragAudio = new Audio('/drag.mp3');
@@ -595,7 +707,7 @@
       try {
         const res  = await fetch('/api/ask', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', 'X-Session-Token': SESSION_TOKEN },
           body: JSON.stringify({ question }),
         });
         const data = await res.json();
@@ -611,10 +723,17 @@
           // Play exhale → sound effects → TTS in sequence
           playAudioSequence(data.exhale, data.soundEffects || [], data.audio);
         }
+        // Update fly count from response or re-fetch
+        if (typeof data.dailyRemaining === 'number') {
+          updateFlyDisplay({ dailyRemaining: data.dailyRemaining, bought: data.bought || 0, total: (data.dailyRemaining + (data.bought || 0)) });
+        } else {
+          fetchFlies();
+        }
       } catch {
         stopDrag();
         responseText.textContent = 'The swamp is quiet right now. Try again.';
         responseText.classList.add('is-error');
+        fetchFlies();
       }
 
       loading.classList.remove('visible');
@@ -635,7 +754,7 @@
         }, 1600);
       }
 
-      button.disabled = false;
+      // Button re-enable is handled by updateFlyDisplay (called above or via fetchFlies)
     });
 
     input.addEventListener('keydown', (e) => {

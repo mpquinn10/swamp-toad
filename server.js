@@ -4,9 +4,10 @@ const path = require('path');
 const fs = require('fs');
 const Anthropic = require('@anthropic-ai/sdk');
 
-const app = express();
-app.use(express.json());
-app.use(express.static(path.join(__dirname)));
+// ── Constants ─────────────────────────────────────────────
+const DAILY_FREE_FLIES = 10;
+const FLIES_PER_PACK   = 50;
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
@@ -51,10 +52,9 @@ FORMAT:
 You have one job. Tell people what they already know
 but won't say to themselves.`;
 
-const RATE_LIMIT_MESSAGE = "You've had enough wisdom for one day. Come back tomorrow.";
+const NO_FLIES_MSG = "No flies left. Feed the toad and come back.";
 
-// ── Exhale cache ──────────────────────────────────────────────
-// Cached in memory + written to /tmp so it survives warm instance reuse on Vercel
+// ── Exhale cache ──────────────────────────────────────────
 let cachedExhaleB64 = null;
 const EXHALE_TMP = '/tmp/swamptoad_exhale.mp3';
 
@@ -81,9 +81,7 @@ async function getExhale(key) {
   return cachedExhaleB64;
 }
 
-// ── Rate limiting ─────────────────────────────────────────────
-// Uses Vercel KV when KV_REST_API_URL + KV_REST_API_TOKEN are set,
-// falls back to in-memory (works locally, degrades gracefully without KV)
+// ── KV client ─────────────────────────────────────────────
 let kvClient = null;
 try {
   if (process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN) {
@@ -92,27 +90,23 @@ try {
       url: process.env.KV_REST_API_URL,
       token: process.env.KV_REST_API_TOKEN,
     });
-    console.log('Rate limiting: Vercel KV');
+    console.log('Storage: Vercel KV');
   } else {
-    console.log('Rate limiting: in-memory');
+    console.log('Storage: in-memory');
   }
 } catch (e) {
-  console.log('Rate limiting: in-memory (KV init failed)');
+  console.log('Storage: in-memory (KV init failed)');
 }
 
-// In-memory fallback
-const ipRequests = new Map();
-let dailyTotal = 0;
-let lastResetDate = new Date().toDateString();
+// ── In-memory session store (local dev fallback) ──────────
+// token -> { dailyByDate: Map<string, number>, bought: number }
+const inMemorySessions = new Map();
 
-function resetIfNewDay() {
-  const today = new Date().toDateString();
-  if (today !== lastResetDate) {
-    ipRequests.clear();
-    dailyTotal = 0;
-    lastResetDate = today;
-    console.log(`[${new Date().toISOString()}] New day — counters reset.`);
+function getOrCreateSession(token) {
+  if (!inMemorySessions.has(token)) {
+    inMemorySessions.set(token, { dailyByDate: new Map(), bought: 0 });
   }
+  return inMemorySessions.get(token);
 }
 
 function dayKey() {
@@ -126,61 +120,172 @@ function secondsUntilMidnight() {
   return Math.floor((midnight - now) / 1000);
 }
 
-async function checkLimit(ip) {
+async function getFlyCounts(token) {
   if (kvClient) {
-    const [daily, ipCount] = await Promise.all([
-      kvClient.get(`st:daily:${dayKey()}`),
-      kvClient.get(`st:ip:${ip}:${dayKey()}`),
+    const [dailyUsed, bought] = await Promise.all([
+      kvClient.get(`flies:daily:${token}:${dayKey()}`),
+      kvClient.get(`flies:bought:${token}`),
     ]);
-    return { daily: daily || 0, ipCount: ipCount || 0 };
+    return { dailyUsed: dailyUsed || 0, bought: bought || 0 };
   }
-  resetIfNewDay();
-  return { daily: dailyTotal, ipCount: ipRequests.get(ip) || 0 };
+  const s = getOrCreateSession(token);
+  return { dailyUsed: s.dailyByDate.get(dayKey()) || 0, bought: s.bought };
 }
 
-async function incrementLimit(ip) {
+// Deducts one fly. Returns { consumed: true, dailyRemaining, bought } or { consumed: false }
+async function consumeFly(token) {
+  const { dailyUsed, bought } = await getFlyCounts(token);
+  const dailyRemaining = DAILY_FREE_FLIES - dailyUsed;
+
+  if (dailyRemaining > 0) {
+    if (kvClient) {
+      const key = `flies:daily:${token}:${dayKey()}`;
+      const newVal = await kvClient.incr(key);
+      if (newVal === 1) await kvClient.expire(key, secondsUntilMidnight());
+    } else {
+      const s = getOrCreateSession(token);
+      s.dailyByDate.set(dayKey(), dailyUsed + 1);
+    }
+    return { consumed: true, dailyRemaining: dailyRemaining - 1, bought };
+  }
+
+  if (bought > 0) {
+    if (kvClient) {
+      const newBought = await kvClient.decrby(`flies:bought:${token}`, 1);
+      return { consumed: true, dailyRemaining: 0, bought: Math.max(0, newBought) };
+    } else {
+      const s = getOrCreateSession(token);
+      s.bought = Math.max(0, s.bought - 1);
+      return { consumed: true, dailyRemaining: 0, bought: s.bought };
+    }
+  }
+
+  return { consumed: false, dailyRemaining: 0, bought: 0 };
+}
+
+async function addBoughtFlies(token, amount) {
   if (kvClient) {
-    const ttl = secondsUntilMidnight();
-    const dKey = `st:daily:${dayKey()}`;
-    const iKey = `st:ip:${ip}:${dayKey()}`;
-    const [d, i] = await Promise.all([kvClient.incr(dKey), kvClient.incr(iKey)]);
-    const expires = [];
-    if (d === 1) expires.push(kvClient.expire(dKey, ttl));
-    if (i === 1) expires.push(kvClient.expire(iKey, ttl));
-    if (expires.length) await Promise.all(expires);
+    await kvClient.incrby(`flies:bought:${token}`, amount);
     return;
   }
-  resetIfNewDay();
-  ipRequests.set(ip, (ipRequests.get(ip) || 0) + 1);
-  dailyTotal++;
+  const s = getOrCreateSession(token);
+  s.bought += amount;
 }
 
-function maskIp(ip) {
-  if (!ip) return 'unknown';
-  const parts = ip.split('.');
-  if (parts.length === 4) return `${parts[0]}.${parts[1]}.*.*`;
-  return ip.substring(0, 6) + '***';
+// ── Stripe ────────────────────────────────────────────────
+let stripe = null;
+try {
+  if (process.env.STRIPE_SECRET_KEY) {
+    stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+    console.log('Stripe: enabled');
+  }
+} catch (e) {
+  console.log('Stripe: disabled (package not found)');
 }
 
+// ── Express app ───────────────────────────────────────────
+const app = express();
+
+// ── Stripe webhook: must be defined before express.json() ─
+app.post('/api/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
+  if (!stripe || !process.env.STRIPE_WEBHOOK_SECRET) {
+    return res.status(400).send('Stripe not configured');
+  }
+  const sig = req.headers['stripe-signature'];
+  let event;
+  try {
+    event = stripe.webhooks.constructEvent(req.body, sig, process.env.STRIPE_WEBHOOK_SECRET);
+  } catch (err) {
+    console.error(`[${new Date().toISOString()}] Webhook signature error:`, err.message);
+    return res.status(400).send(`Webhook Error: ${err.message}`);
+  }
+
+  if (event.type === 'checkout.session.completed') {
+    const session = event.data.object;
+    const token = session.metadata?.sessionToken;
+    const flyAmount = parseInt(session.metadata?.flyAmount || String(FLIES_PER_PACK), 10);
+    if (token && UUID_RE.test(token)) {
+      await addBoughtFlies(token, flyAmount);
+      console.log(`[${new Date().toISOString()}] +${flyAmount} flies → session ${token.substring(0, 8)}***`);
+    }
+  }
+
+  res.json({ received: true });
+});
+
+app.use(express.json());
+app.use(express.static(path.join(__dirname)));
+
+// ── GET /api/flies ────────────────────────────────────────
+app.get('/api/flies', async (req, res) => {
+  const token = (req.headers['x-session-token'] || '').trim();
+  const paymentEnabled = !!(stripe && process.env.STRIPE_PRICE_ID);
+
+  if (!token || !UUID_RE.test(token)) {
+    return res.json({
+      dailyUsed: 0,
+      dailyRemaining: DAILY_FREE_FLIES,
+      bought: 0,
+      total: DAILY_FREE_FLIES,
+      paymentEnabled,
+    });
+  }
+
+  const { dailyUsed, bought } = await getFlyCounts(token);
+  const dailyRemaining = Math.max(0, DAILY_FREE_FLIES - dailyUsed);
+  res.json({ dailyUsed, dailyRemaining, bought, total: dailyRemaining + bought, paymentEnabled });
+});
+
+// ── POST /api/checkout ────────────────────────────────────
+app.post('/api/checkout', async (req, res) => {
+  if (!stripe || !process.env.STRIPE_PRICE_ID) {
+    return res.status(400).json({ error: 'Payments not available right now.' });
+  }
+
+  const token = (req.headers['x-session-token'] || '').trim();
+  if (!token || !UUID_RE.test(token)) {
+    return res.status(400).json({ error: 'Invalid session.' });
+  }
+
+  const proto = req.headers['x-forwarded-proto'] || req.protocol;
+  const host  = req.headers['x-forwarded-host']  || req.get('host');
+  const baseUrl = `${proto}://${host}`;
+
+  try {
+    const session = await stripe.checkout.sessions.create({
+      payment_method_types: ['card'],
+      line_items: [{ price: process.env.STRIPE_PRICE_ID, quantity: 1, description: '50 questions for Swamp Toad. Never expire.' }],
+      mode: 'payment',
+      success_url: `${baseUrl}/?payment=success`,
+      cancel_url:  `${baseUrl}/`,
+      metadata: { sessionToken: token, flyAmount: String(FLIES_PER_PACK) },
+    });
+    res.json({ url: session.url });
+  } catch (err) {
+    console.error(`[${new Date().toISOString()}] Checkout error:`, err.message);
+    res.status(500).json({ error: 'The swamp is restless. Try again.' });
+  }
+});
+
+// ── POST /api/ask ─────────────────────────────────────────
 app.post('/api/ask', async (req, res) => {
-  const ip = req.headers['x-forwarded-for']?.split(',')[0].trim() || req.socket.remoteAddress || 'unknown';
+  const token    = (req.headers['x-session-token'] || '').trim();
   const question = (req.body.question || '').trim();
 
   if (!question) return res.status(400).json({ error: 'Say something. The swamp waits.' });
   if (question.length > 500) return res.status(400).json({ error: 'Too many words. Ask simpler.' });
 
-  const { daily, ipCount } = await checkLimit(ip);
-
-  if (daily >= 500) {
-    console.log(`[${new Date().toISOString()}] Daily cap hit. Turning away: ${maskIp(ip)}`);
-    return res.status(429).json({ error: RATE_LIMIT_MESSAGE });
-  }
-  if (ipCount >= 10) {
-    console.log(`[${new Date().toISOString()}] IP limit hit: ${maskIp(ip)}`);
-    return res.status(429).json({ error: RATE_LIMIT_MESSAGE });
+  if (!token || !UUID_RE.test(token)) {
+    return res.status(400).json({ error: 'The swamp does not know you.' });
   }
 
-  console.log(`[${new Date().toISOString()}] IP: ${maskIp(ip)} | IP count: ${ipCount + 1}/10 | Daily: ${daily + 1}/500`);
+  const flyResult = await consumeFly(token);
+  if (!flyResult.consumed) {
+    return res.status(429).json({ error: NO_FLIES_MSG, noFlies: true });
+  }
+
+  const fliesLeft = flyResult.dailyRemaining + flyResult.bought;
+  console.log(`[${new Date().toISOString()}] Session: ${token.substring(0, 8)}*** | Flies left: ${fliesLeft}`);
 
   try {
     const message = await client.messages.create({
@@ -189,8 +294,6 @@ app.post('/api/ask', async (req, res) => {
       system: SYSTEM_PROMPT,
       messages: [{ role: 'user', content: question }],
     });
-
-    await incrementLimit(ip);
 
     const response = message.content[0].text;
 
@@ -246,14 +349,14 @@ app.post('/api/ask', async (req, res) => {
       }
     }
 
-    res.json({ response, audio, exhale, soundEffects });
+    res.json({ response, audio, exhale, soundEffects, fliesLeft, dailyRemaining: flyResult.dailyRemaining, bought: flyResult.bought });
   } catch (err) {
     console.error(`[${new Date().toISOString()}] API error:`, err.message);
     res.status(500).json({ error: 'The swamp is quiet right now. Try again.' });
   }
 });
 
-// Email subscribe — posts to BeehiiV API
+// ── POST /api/subscribe ───────────────────────────────────
 app.post('/api/subscribe', async (req, res) => {
   const email = (req.body.email || '').trim().toLowerCase();
 
