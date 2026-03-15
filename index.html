@@ -597,7 +597,7 @@
         flyCountEl.classList.add('urgent');
         button.disabled = true;
         if (stripeEnabled) {
-          flyCountEl.innerHTML = 'No flies remain. <button class="feed-link" id="feedBtn">Feed the toad.</button>';
+          flyCountEl.innerHTML = 'No flies remain. <button class="feed-link" type="button" id="feedBtn">Feed the toad.</button>';
           document.getElementById('feedBtn')?.addEventListener('click', buyFlies);
         } else {
           flyCountEl.textContent = 'No flies remain. Come back tomorrow.';

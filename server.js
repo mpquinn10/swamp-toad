@@ -5,7 +5,7 @@ const fs = require('fs');
 const Anthropic = require('@anthropic-ai/sdk');
 
 // ── Constants ─────────────────────────────────────────────
-const DAILY_FREE_FLIES = 10;
+const DAILY_FREE_FLIES = 3;
 const FLIES_PER_PACK   = 50;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
