@@ -306,21 +306,24 @@ app.post('/api/ask', async (req, res) => {
   if (question.length > 500) return res.status(400).json({ error: 'Too many words. Ask simpler.' });
 
   const user = await getUser(req);
-  if (!user) return res.status(401).json({ error: 'Sign in to ask the toad.' });
 
   let flyResult;
-  try {
-    flyResult = await consumeFly(user.id);
-  } catch (err) {
-    console.error(`[${new Date().toISOString()}] consumeFly error:`, err.message);
-    flyResult = { consumed: true, dailyRemaining: 0, bought: 0 }; // fail open
+  if (!user) {
+    flyResult = { consumed: true, dailyRemaining: 0, bought: 0, anonMode: true };
+    console.log(`[${new Date().toISOString()}] Anon ask`);
+  } else {
+    try {
+      flyResult = await consumeFly(user.id);
+    } catch (err) {
+      console.error(`[${new Date().toISOString()}] consumeFly error:`, err.message);
+      flyResult = { consumed: true, dailyRemaining: 0, bought: 0 }; // fail open
+    }
+    if (!flyResult.consumed) {
+      return res.status(429).json({ error: NO_FLIES_MSG, noFlies: true });
+    }
+    const fliesLeft = flyResult.dailyRemaining + flyResult.bought;
+    console.log(`[${new Date().toISOString()}] User: ${user.id.substring(0, 8)}*** | Flies left: ${fliesLeft}`);
   }
-  if (!flyResult.consumed) {
-    return res.status(429).json({ error: NO_FLIES_MSG, noFlies: true });
-  }
-
-  const fliesLeft = flyResult.dailyRemaining + flyResult.bought;
-  console.log(`[${new Date().toISOString()}] User: ${user.id.substring(0, 8)}*** | Flies left: ${fliesLeft}`);
 
   try {
     const message = await client.messages.create({
@@ -384,7 +387,7 @@ app.post('/api/ask', async (req, res) => {
       }
     }
 
-    res.json({ response, audio, exhale, soundEffects, fliesLeft, dailyRemaining: flyResult.dailyRemaining, bought: flyResult.bought });
+    res.json({ response, audio, exhale, soundEffects, fliesLeft: flyResult.anonMode ? null : (flyResult.dailyRemaining + flyResult.bought), dailyRemaining: flyResult.dailyRemaining, bought: flyResult.bought, anonMode: flyResult.anonMode || false });
   } catch (err) {
     console.error(`[${new Date().toISOString()}] API error:`, err.message);
     res.status(500).json({ error: 'The swamp is quiet right now. Try again.' });

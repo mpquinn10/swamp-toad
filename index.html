@@ -671,6 +671,36 @@
     const signoutEmail      = document.getElementById('signoutEmail');
     const signoutBtn        = document.getElementById('signoutBtn');
 
+    // ── Anon fly tracking ─────────────────────────────────
+    const ANON_KEY   = 'toad_anon_used';
+    const ANON_LIMIT = 3;
+
+    function getAnonUsed() { return parseInt(localStorage.getItem(ANON_KEY) || '0', 10); }
+    function incAnonUsed()  { localStorage.setItem(ANON_KEY, getAnonUsed() + 1); }
+
+    function updateAnonFlyDisplay() {
+      const remaining = Math.max(0, ANON_LIMIT - getAnonUsed());
+      flyCountEl.classList.remove('urgent');
+      if (remaining > 0) {
+        button.disabled = false;
+        flyCountEl.textContent = `${remaining} ${remaining === 1 ? 'fly' : 'flies'} today`;
+      } else {
+        button.disabled = true;
+        flyCountEl.classList.add('urgent');
+        flyCountEl.innerHTML = 'Sign in to continue. <button class="feed-link" id="signinPromptBtn">Enter the swamp.</button>';
+        document.getElementById('signinPromptBtn')?.addEventListener('click', showSigninForm);
+      }
+    }
+
+    function showSigninForm() {
+      askZone.style.display = 'none';
+      signinZone.style.display = '';
+      signinMessage.textContent = '';
+      emailSignin.style.display = '';
+      signinBtn.style.display = '';
+      signinBtn.disabled = false;
+    }
+
     // ── Supabase ──────────────────────────────────────────
     let supabaseClient = null;
 
@@ -704,15 +734,24 @@
     }
 
     function setSignedOut() {
-      askZone.style.display = 'none';
       signoutRow.style.display = 'none';
       responseSection.classList.remove('visible', 'faded-in');
       newsletterSection.classList.remove('visible', 'faded-in');
-      signinZone.style.display = '';
-      signinMessage.textContent = '';
-      emailSignin.style.display = '';
-      signinBtn.style.display = '';
-      signinBtn.disabled = false;
+
+      if (getAnonUsed() < ANON_LIMIT) {
+        // Still have anon flies — show ask form without requiring sign-in
+        signinZone.style.display = 'none';
+        askZone.style.display = '';
+        updateAnonFlyDisplay();
+      } else {
+        // Anon flies exhausted — require sign-in
+        askZone.style.display = 'none';
+        signinZone.style.display = '';
+        signinMessage.textContent = '';
+        emailSignin.style.display = '';
+        signinBtn.style.display = '';
+        signinBtn.disabled = false;
+      }
     }
 
     async function initSupabase() {
@@ -900,8 +939,11 @@
           // Play exhale → sound effects → TTS in sequence
           playAudioSequence(data.exhale, data.soundEffects || [], data.audio);
         }
-        // Update fly count from response or re-fetch
-        if (typeof data.dailyRemaining === 'number') {
+        // Update fly count
+        if (data.anonMode) {
+          incAnonUsed();
+          updateAnonFlyDisplay();
+        } else if (typeof data.dailyRemaining === 'number') {
           updateFlyDisplay({ dailyRemaining: data.dailyRemaining, bought: data.bought || 0, total: (data.dailyRemaining + (data.bought || 0)) });
         } else {
           fetchFlies();
@@ -910,7 +952,8 @@
         stopDrag();
         responseText.textContent = 'The swamp is quiet right now. Try again.';
         responseText.classList.add('is-error');
-        fetchFlies();
+        const s = await getSession();
+        if (s) fetchFlies(); else updateAnonFlyDisplay();
       }
 
       loading.classList.remove('visible');
