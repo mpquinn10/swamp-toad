@@ -259,7 +259,7 @@ app.post('/api/checkout', async (req, res) => {
   try {
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ['card'],
-      line_items: [{ price: process.env.STRIPE_PRICE_ID, quantity: 1, description: '50 questions for Swamp Toad. Never expire.' }],
+      line_items: [{ price: process.env.STRIPE_PRICE_ID, quantity: 1 }],
       mode: 'payment',
       success_url: `${baseUrl}/?payment=success`,
       cancel_url:  `${baseUrl}/`,
