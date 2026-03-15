@@ -3,11 +3,11 @@ const express = require('express');
 const path = require('path');
 const fs = require('fs');
 const Anthropic = require('@anthropic-ai/sdk');
+const { createClient } = require('@supabase/supabase-js');
 
 // ── Constants ─────────────────────────────────────────────
 const DAILY_FREE_FLIES = 3;
 const FLIES_PER_PACK   = 50;
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
@@ -81,95 +81,100 @@ async function getExhale(key) {
   return cachedExhaleB64;
 }
 
-// ── KV client ─────────────────────────────────────────────
-let kvClient = null;
-try {
-  if (process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN) {
-    const { createClient } = require('@vercel/kv');
-    kvClient = createClient({
-      url: process.env.KV_REST_API_URL,
-      token: process.env.KV_REST_API_TOKEN,
-    });
-    console.log('Storage: Vercel KV');
-  } else {
-    console.log('Storage: in-memory');
-  }
-} catch (e) {
-  console.log('Storage: in-memory (KV init failed)');
+// ── Supabase admin client ─────────────────────────────────
+const supabase = createClient(
+  process.env.SUPABASE_URL || '',
+  process.env.SUPABASE_SERVICE_KEY || '',
+  { auth: { autoRefreshToken: false, persistSession: false } }
+);
+
+if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_KEY) {
+  console.warn('Supabase not configured — set SUPABASE_URL and SUPABASE_SERVICE_KEY');
 }
 
-// ── In-memory session store (local dev fallback) ──────────
-// token -> { dailyByDate: Map<string, number>, bought: number }
-const inMemorySessions = new Map();
-
-function getOrCreateSession(token) {
-  if (!inMemorySessions.has(token)) {
-    inMemorySessions.set(token, { dailyByDate: new Map(), bought: 0 });
-  }
-  return inMemorySessions.get(token);
+// Returns the authenticated user from the Bearer token, or null
+async function getUser(req) {
+  const auth = req.headers['authorization'] || '';
+  const token = auth.startsWith('Bearer ') ? auth.slice(7).trim() : null;
+  if (!token) return null;
+  const { data, error } = await supabase.auth.getUser(token);
+  if (error || !data?.user) return null;
+  return data.user;
 }
 
-function dayKey() {
-  return new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+function today() {
+  return new Date().toISOString().slice(0, 10); // YYYY-MM-DD UTC
 }
 
-function secondsUntilMidnight() {
-  const now = new Date();
-  const midnight = new Date(now);
-  midnight.setHours(24, 0, 0, 0);
-  return Math.floor((midnight - now) / 1000);
-}
+async function getFlyCounts(userId) {
+  const { data, error } = await supabase
+    .from('user_flies')
+    .select('daily_used, daily_date, bought')
+    .eq('user_id', userId)
+    .single();
 
-async function getFlyCounts(token) {
-  if (kvClient) {
-    const [dailyUsed, bought] = await Promise.all([
-      kvClient.get(`flies:daily:${token}:${dayKey()}`),
-      kvClient.get(`flies:bought:${token}`),
-    ]);
-    return { dailyUsed: dailyUsed || 0, bought: bought || 0 };
-  }
-  const s = getOrCreateSession(token);
-  return { dailyUsed: s.dailyByDate.get(dayKey()) || 0, bought: s.bought };
+  if (error || !data) return { dailyUsed: 0, bought: 0 };
+
+  const dailyUsed = data.daily_date === today() ? data.daily_used : 0;
+  return { dailyUsed, bought: data.bought || 0 };
 }
 
 // Deducts one fly. Returns { consumed: true, dailyRemaining, bought } or { consumed: false }
-async function consumeFly(token) {
-  const { dailyUsed, bought } = await getFlyCounts(token);
+async function consumeFly(userId) {
+  const { dailyUsed, bought } = await getFlyCounts(userId);
   const dailyRemaining = DAILY_FREE_FLIES - dailyUsed;
+  const td = today();
 
   if (dailyRemaining > 0) {
-    if (kvClient) {
-      const key = `flies:daily:${token}:${dayKey()}`;
-      const newVal = await kvClient.incr(key);
-      if (newVal === 1) await kvClient.expire(key, secondsUntilMidnight());
-    } else {
-      const s = getOrCreateSession(token);
-      s.dailyByDate.set(dayKey(), dailyUsed + 1);
-    }
+    const { error } = await supabase
+      .from('user_flies')
+      .upsert({
+        user_id: userId,
+        daily_used: dailyUsed + 1,
+        daily_date: td,
+        bought,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: 'user_id' });
+    if (error) throw error;
     return { consumed: true, dailyRemaining: dailyRemaining - 1, bought };
   }
 
   if (bought > 0) {
-    if (kvClient) {
-      const newBought = await kvClient.decrby(`flies:bought:${token}`, 1);
-      return { consumed: true, dailyRemaining: 0, bought: Math.max(0, newBought) };
-    } else {
-      const s = getOrCreateSession(token);
-      s.bought = Math.max(0, s.bought - 1);
-      return { consumed: true, dailyRemaining: 0, bought: s.bought };
-    }
+    const { error } = await supabase
+      .from('user_flies')
+      .upsert({
+        user_id: userId,
+        daily_used: dailyUsed,
+        daily_date: td,
+        bought: bought - 1,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: 'user_id' });
+    if (error) throw error;
+    return { consumed: true, dailyRemaining: 0, bought: bought - 1 };
   }
 
   return { consumed: false, dailyRemaining: 0, bought: 0 };
 }
 
-async function addBoughtFlies(token, amount) {
-  if (kvClient) {
-    await kvClient.incrby(`flies:bought:${token}`, amount);
-    return;
-  }
-  const s = getOrCreateSession(token);
-  s.bought += amount;
+async function addBoughtFlies(userId, amount) {
+  const { data } = await supabase
+    .from('user_flies')
+    .select('daily_used, daily_date, bought')
+    .eq('user_id', userId)
+    .single();
+
+  const td = today();
+  const current = data || { daily_used: 0, daily_date: td, bought: 0 };
+
+  await supabase
+    .from('user_flies')
+    .upsert({
+      user_id: userId,
+      daily_used: current.daily_date === td ? current.daily_used : 0,
+      daily_date: td,
+      bought: (current.bought || 0) + amount,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: 'user_id' });
 }
 
 // ── Stripe ────────────────────────────────────────────────
@@ -202,11 +207,11 @@ app.post('/api/webhook', express.raw({ type: 'application/json' }), async (req, 
 
   if (event.type === 'checkout.session.completed') {
     const session = event.data.object;
-    const token = session.metadata?.sessionToken;
+    const userId = session.metadata?.userId;
     const flyAmount = parseInt(session.metadata?.flyAmount || String(FLIES_PER_PACK), 10);
-    if (token && UUID_RE.test(token)) {
-      await addBoughtFlies(token, flyAmount);
-      console.log(`[${new Date().toISOString()}] +${flyAmount} flies → session ${token.substring(0, 8)}***`);
+    if (userId) {
+      await addBoughtFlies(userId, flyAmount);
+      console.log(`[${new Date().toISOString()}] +${flyAmount} flies → user ${userId.substring(0, 8)}***`);
     }
   }
 
@@ -216,28 +221,27 @@ app.post('/api/webhook', express.raw({ type: 'application/json' }), async (req, 
 app.use(express.json());
 app.use(express.static(path.join(__dirname)));
 
+// ── GET /api/config ───────────────────────────────────────
+app.get('/api/config', (req, res) => {
+  res.json({
+    supabaseUrl: process.env.SUPABASE_URL || '',
+    supabaseAnonKey: process.env.SUPABASE_ANON_KEY || '',
+  });
+});
+
 // ── GET /api/flies ────────────────────────────────────────
 app.get('/api/flies', async (req, res) => {
-  const token = (req.headers['x-session-token'] || '').trim();
+  const user = await getUser(req);
+  if (!user) return res.status(401).json({ error: 'Sign in to see your flies.' });
+
   const paymentEnabled = !!(stripe && process.env.STRIPE_PRICE_ID);
-
-  if (!token || !UUID_RE.test(token)) {
-    return res.json({
-      dailyUsed: 0,
-      dailyRemaining: DAILY_FREE_FLIES,
-      bought: 0,
-      total: DAILY_FREE_FLIES,
-      paymentEnabled,
-    });
-  }
-
   try {
-    const { dailyUsed, bought } = await getFlyCounts(token);
+    const { dailyUsed, bought } = await getFlyCounts(user.id);
     const dailyRemaining = Math.max(0, DAILY_FREE_FLIES - dailyUsed);
     res.json({ dailyUsed, dailyRemaining, bought, total: dailyRemaining + bought, paymentEnabled });
   } catch (err) {
     console.error(`[${new Date().toISOString()}] getFlyCounts error:`, err.message);
-    res.json({ dailyUsed: 0, dailyRemaining: DAILY_FREE_FLIES, bought: 0, total: DAILY_FREE_FLIES, paymentEnabled });
+    res.status(500).json({ error: 'The swamp is restless.' });
   }
 });
 
@@ -247,10 +251,8 @@ app.post('/api/checkout', async (req, res) => {
     return res.status(400).json({ error: 'Payments not available right now.' });
   }
 
-  const token = (req.headers['x-session-token'] || '').trim();
-  if (!token || !UUID_RE.test(token)) {
-    return res.status(400).json({ error: 'Invalid session.' });
-  }
+  const user = await getUser(req);
+  if (!user) return res.status(401).json({ error: 'Sign in first.' });
 
   const proto = req.headers['x-forwarded-proto'] || req.protocol;
   const host  = req.headers['x-forwarded-host']  || req.get('host');
@@ -263,7 +265,7 @@ app.post('/api/checkout', async (req, res) => {
       mode: 'payment',
       success_url: `${baseUrl}/?payment=success`,
       cancel_url:  `${baseUrl}/`,
-      metadata: { sessionToken: token, flyAmount: String(FLIES_PER_PACK) },
+      metadata: { userId: user.id, flyAmount: String(FLIES_PER_PACK) },
     });
     res.json({ url: session.url });
   } catch (err) {
@@ -274,19 +276,17 @@ app.post('/api/checkout', async (req, res) => {
 
 // ── POST /api/ask ─────────────────────────────────────────
 app.post('/api/ask', async (req, res) => {
-  const token    = (req.headers['x-session-token'] || '').trim();
   const question = (req.body.question || '').trim();
 
   if (!question) return res.status(400).json({ error: 'Say something. The swamp waits.' });
   if (question.length > 500) return res.status(400).json({ error: 'Too many words. Ask simpler.' });
 
-  if (!token || !UUID_RE.test(token)) {
-    return res.status(400).json({ error: 'The swamp does not know you.' });
-  }
+  const user = await getUser(req);
+  if (!user) return res.status(401).json({ error: 'Sign in to ask the toad.' });
 
   let flyResult;
   try {
-    flyResult = await consumeFly(token);
+    flyResult = await consumeFly(user.id);
   } catch (err) {
     console.error(`[${new Date().toISOString()}] consumeFly error:`, err.message);
     flyResult = { consumed: true, dailyRemaining: 0, bought: 0 }; // fail open
@@ -296,7 +296,7 @@ app.post('/api/ask', async (req, res) => {
   }
 
   const fliesLeft = flyResult.dailyRemaining + flyResult.bought;
-  console.log(`[${new Date().toISOString()}] Session: ${token.substring(0, 8)}*** | Flies left: ${fliesLeft}`);
+  console.log(`[${new Date().toISOString()}] User: ${user.id.substring(0, 8)}*** | Flies left: ${fliesLeft}`);
 
   try {
     const message = await client.messages.create({

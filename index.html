@@ -8,6 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600&family=Spectral:ital,wght@0,300;0,400;0,500;1,300;1,400&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
   <style>
     :root {
@@ -182,6 +183,27 @@
       letter-spacing: 0.08em;
       text-align: center;
       margin-top: 6px;
+    }
+
+    /* ── Sign-in zone ───────────────────────────────────── */
+
+    .signin-zone {
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 16px;
+      margin-top: 24px;
+    }
+
+    .signin-message {
+      font-family: 'Spectral', serif;
+      font-style: italic;
+      font-size: 13px;
+      color: var(--gold);
+      letter-spacing: 0.04em;
+      text-align: center;
+      min-height: 18px;
     }
 
     /* ── Ask zone ───────────────────────────────────────── */
@@ -442,6 +464,47 @@
 
     .feed-link:hover { color: var(--gold-bright); }
 
+    /* ── Sign-out row ───────────────────────────────────── */
+
+    .signout-row {
+      width: 100%;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 6px;
+      margin-top: 20px;
+    }
+
+    .signout-email {
+      font-family: 'Spectral', serif;
+      font-size: 11px;
+      font-style: italic;
+      color: var(--warm-muted);
+      letter-spacing: 0.03em;
+    }
+
+    .signout-sep {
+      font-size: 11px;
+      color: var(--warm-muted);
+      opacity: 0.4;
+    }
+
+    .signout-link {
+      background: none;
+      border: none;
+      cursor: pointer;
+      font-family: 'Spectral', serif;
+      font-style: italic;
+      font-size: 11px;
+      color: rgba(212, 134, 10, 0.35);
+      text-decoration: underline;
+      padding: 0;
+      letter-spacing: 0.03em;
+      transition: color 0.3s;
+    }
+
+    .signout-link:hover { color: var(--gold-dim); }
+
     /* ── Animations ──────────────────────────────────────── */
 
     @keyframes materialise {
@@ -506,8 +569,25 @@
       <h1 class="title">Swamp Toad</h1>
       <p class="subtitle">An audience with an ancient being</p>
 
-      <!-- Ask form -->
-      <div class="ask-zone">
+      <!-- Sign-in zone (shown when signed out) -->
+      <div class="signin-zone" id="signinZone" style="display:none">
+        <div class="input-wrap">
+          <input
+            class="question-input"
+            id="emailSignin"
+            type="email"
+            placeholder="your@email.com"
+            autocomplete="email"
+            spellcheck="false"
+          >
+          <div class="input-glow"></div>
+        </div>
+        <button class="ask-button" id="signinBtn" type="button">Enter the swamp.</button>
+        <p class="signin-message" id="signinMessage"></p>
+      </div>
+
+      <!-- Ask zone (shown when signed in) -->
+      <div class="ask-zone" id="askZone" style="display:none">
         <form id="askForm" autocomplete="off" style="width:100%;display:flex;flex-direction:column;align-items:center;gap:16px;">
           <div class="input-wrap">
             <input
@@ -553,39 +633,138 @@
             >
             <div class="input-glow"></div>
           </div>
-          <button class="ask-button" id="emailSubmit" type="button">Enter the swamp.</button>
+          <button class="ask-button" id="emailSubmit" type="button">Subscribe.</button>
         </div>
         <p class="email-confirm" id="emailConfirm">Swamp Toad will find you.</p>
+      </div>
+
+      <!-- Sign-out row (shown when signed in) -->
+      <div class="signout-row" id="signoutRow" style="display:none">
+        <span class="signout-email" id="signoutEmail"></span>
+        <span class="signout-sep">·</span>
+        <button class="signout-link" id="signoutBtn" type="button">sign out</button>
       </div>
 
     </div><!-- /.content-block -->
   </div><!-- /.ui -->
 
   <script>
-    const form            = document.getElementById('askForm');
-    const input           = document.getElementById('questionInput');
-    const button          = document.getElementById('askButton');
-    const loading         = document.getElementById('loading');
-    const responseSection = document.getElementById('responseSection');
-    const responseText    = document.getElementById('responseText');
+    const form              = document.getElementById('askForm');
+    const input             = document.getElementById('questionInput');
+    const button            = document.getElementById('askButton');
+    const loading           = document.getElementById('loading');
+    const responseSection   = document.getElementById('responseSection');
+    const responseText      = document.getElementById('responseText');
     const newsletterSection = document.getElementById('newsletterSection');
-    const newsletterBtn   = document.getElementById('newsletterBtn');
-    const emailCapture    = document.getElementById('emailCapture');
-    const emailInput      = document.getElementById('emailInput');
-    const emailSubmit     = document.getElementById('emailSubmit');
-    const emailConfirm    = document.getElementById('emailConfirm');
-    const flyCountEl      = document.getElementById('flyCount');
+    const newsletterBtn     = document.getElementById('newsletterBtn');
+    const emailCapture      = document.getElementById('emailCapture');
+    const emailInput        = document.getElementById('emailInput');
+    const emailSubmit       = document.getElementById('emailSubmit');
+    const emailConfirm      = document.getElementById('emailConfirm');
+    const flyCountEl        = document.getElementById('flyCount');
+    const askZone           = document.getElementById('askZone');
+    const signinZone        = document.getElementById('signinZone');
+    const emailSignin       = document.getElementById('emailSignin');
+    const signinBtn         = document.getElementById('signinBtn');
+    const signinMessage     = document.getElementById('signinMessage');
+    const signoutRow        = document.getElementById('signoutRow');
+    const signoutEmail      = document.getElementById('signoutEmail');
+    const signoutBtn        = document.getElementById('signoutBtn');
 
-    // ── Session token ─────────────────────────────────────
-    function getSessionToken() {
-      let t = localStorage.getItem('toad_session');
-      if (!t) {
-        t = crypto.randomUUID();
-        localStorage.setItem('toad_session', t);
-      }
-      return t;
+    // ── Supabase ──────────────────────────────────────────
+    let supabaseClient = null;
+
+    async function getSession() {
+      if (!supabaseClient) return null;
+      const { data } = await supabaseClient.auth.getSession();
+      return data.session;
     }
-    const SESSION_TOKEN = getSessionToken();
+
+    async function authHeaders(includeContent = false) {
+      const session = await getSession();
+      const headers = {};
+      if (includeContent) headers['Content-Type'] = 'application/json';
+      if (session?.access_token) headers['Authorization'] = `Bearer ${session.access_token}`;
+      return headers;
+    }
+
+    // ── Auth state UI ─────────────────────────────────────
+    function setSignedIn(user) {
+      signinZone.style.display = 'none';
+      askZone.style.display = '';
+      signoutRow.style.display = 'flex';
+
+      if (user.email) {
+        const [local, domain] = user.email.split('@');
+        const short = local.length > 6 ? local.slice(0, 4) + '...' : local;
+        signoutEmail.textContent = `${short}@${domain}`;
+      }
+
+      fetchFlies();
+    }
+
+    function setSignedOut() {
+      askZone.style.display = 'none';
+      signoutRow.style.display = 'none';
+      responseSection.classList.remove('visible', 'faded-in');
+      newsletterSection.classList.remove('visible', 'faded-in');
+      signinZone.style.display = '';
+      signinMessage.textContent = '';
+      emailSignin.style.display = '';
+      signinBtn.style.display = '';
+      signinBtn.disabled = false;
+    }
+
+    async function initSupabase() {
+      try {
+        const res = await fetch('/api/config');
+        const { supabaseUrl, supabaseAnonKey } = await res.json();
+        supabaseClient = supabase.createClient(supabaseUrl, supabaseAnonKey);
+
+        supabaseClient.auth.onAuthStateChange((event, session) => {
+          if (session?.user) {
+            setSignedIn(session.user);
+          } else {
+            setSignedOut();
+          }
+        });
+      } catch (err) {
+        console.error('Supabase init error:', err);
+        setSignedOut();
+      }
+    }
+
+    initSupabase();
+
+    // ── Sign in ───────────────────────────────────────────
+    signinBtn.addEventListener('click', async () => {
+      const email = emailSignin.value.trim();
+      if (!email) return;
+      signinBtn.disabled = true;
+
+      const { error } = await supabaseClient.auth.signInWithOtp({
+        email,
+        options: { emailRedirectTo: window.location.origin },
+      });
+
+      if (error) {
+        signinMessage.textContent = 'The swamp could not reach you. Try again.';
+        signinBtn.disabled = false;
+      } else {
+        emailSignin.style.display = 'none';
+        signinBtn.style.display = 'none';
+        signinMessage.textContent = 'Check your inbox.';
+      }
+    });
+
+    emailSignin.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') signinBtn.click();
+    });
+
+    // ── Sign out ──────────────────────────────────────────
+    signoutBtn.addEventListener('click', async () => {
+      await supabaseClient.auth.signOut();
+    });
 
     // ── Fly count ─────────────────────────────────────────
     let stripeEnabled = false;
@@ -619,11 +798,11 @@
 
     async function fetchFlies() {
       try {
-        const res = await fetch('/api/flies', { headers: { 'X-Session-Token': SESSION_TOKEN } });
+        const res = await fetch('/api/flies', { headers: await authHeaders() });
         if (res.ok) updateFlyDisplay(await res.json());
-        else button.disabled = false; // server error fallback
+        else if (res.status !== 401) button.disabled = false;
       } catch (_) {
-        button.disabled = false; // network error fallback
+        button.disabled = false;
       }
     }
 
@@ -631,15 +810,12 @@
       try {
         const res = await fetch('/api/checkout', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'X-Session-Token': SESSION_TOKEN },
+          headers: await authHeaders(true),
         });
         const data = await res.json();
         if (data.url) window.location.href = data.url;
       } catch (_) {}
     }
-
-    // Load fly count on startup
-    fetchFlies();
 
     // Handle Stripe payment return
     const _params = new URLSearchParams(window.location.search);
@@ -706,9 +882,9 @@
       responseText.classList.remove('is-error');
 
       try {
-        const res  = await fetch('/api/ask', {
+        const res = await fetch('/api/ask', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'X-Session-Token': SESSION_TOKEN },
+          headers: await authHeaders(true),
           body: JSON.stringify({ question }),
         });
         const data = await res.json();
