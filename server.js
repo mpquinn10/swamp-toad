@@ -113,10 +113,30 @@ async function getFlyCounts(userId) {
     .eq('user_id', userId)
     .single();
 
-  if (error || !data) return { dailyUsed: 0, bought: 0 };
+  if (error || !data) return { dailyUsed: 0, bought: 0, isNew: true };
 
   const dailyUsed = data.daily_date === today() ? data.daily_used : 0;
-  return { dailyUsed, bought: data.bought || 0 };
+  return { dailyUsed, bought: data.bought || 0, isNew: false };
+}
+
+async function subscribeToBeehiiV(email) {
+  const apiKey = process.env.BEEHIIV_API_KEY;
+  const pubId  = process.env.BEEHIIV_PUBLICATION_ID;
+  if (!apiKey || !pubId) return;
+
+  const r = await fetch(`https://api.beehiiv.com/v2/publications/${pubId}/subscriptions`, {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      email,
+      reactivate_existing: false,
+      send_welcome_email: true,
+      utm_source: 'swamptoad_web',
+      utm_medium: 'organic',
+      utm_campaign: 'magic_link',
+    }),
+  });
+  if (!r.ok) throw new Error(`BeehiiV ${r.status}: ${await r.text()}`);
 }
 
 // Deducts one fly. Returns { consumed: true, dailyRemaining, bought } or { consumed: false }
@@ -236,7 +256,11 @@ app.get('/api/flies', async (req, res) => {
 
   const paymentEnabled = !!(stripe && process.env.STRIPE_PRICE_ID);
   try {
-    const { dailyUsed, bought } = await getFlyCounts(user.id);
+    const { dailyUsed, bought, isNew } = await getFlyCounts(user.id);
+    if (isNew && user.email) {
+      subscribeToBeehiiV(user.email).catch(err =>
+        console.error(`[${new Date().toISOString()}] Auto-subscribe error:`, err.message));
+    }
     const dailyRemaining = Math.max(0, DAILY_FREE_FLIES - dailyUsed);
     res.json({ dailyUsed, dailyRemaining, bought, total: dailyRemaining + bought, paymentEnabled });
   } catch (err) {
@@ -375,37 +399,12 @@ app.post('/api/subscribe', async (req, res) => {
     return res.status(400).json({ error: 'The swamp needs a real address.' });
   }
 
-  const apiKey = process.env.BEEHIIV_API_KEY;
-  const pubId  = process.env.BEEHIIV_PUBLICATION_ID;
-
-  if (!apiKey || !pubId) {
-    console.error('BeehiiV env vars not set');
+  if (!process.env.BEEHIIV_API_KEY || !process.env.BEEHIIV_PUBLICATION_ID) {
     return res.status(500).json({ error: 'The swamp is restless. Try again.' });
   }
 
   try {
-    const r = await fetch(`https://api.beehiiv.com/v2/publications/${pubId}/subscriptions`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        email,
-        reactivate_existing: false,
-        send_welcome_email: true,
-        utm_source: 'swamptoad_web',
-        utm_medium: 'organic',
-        utm_campaign: 'email_capture',
-      }),
-    });
-
-    if (!r.ok) {
-      const body = await r.text();
-      console.error(`[${new Date().toISOString()}] BeehiiV error ${r.status}:`, body);
-      return res.status(500).json({ error: 'The swamp is restless. Try again.' });
-    }
-
+    await subscribeToBeehiiV(email);
     console.log(`[${new Date().toISOString()}] Subscriber added: ${email.substring(0, 4)}***`);
     res.json({ success: true });
   } catch (err) {
