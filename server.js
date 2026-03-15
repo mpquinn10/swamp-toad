@@ -231,9 +231,14 @@ app.get('/api/flies', async (req, res) => {
     });
   }
 
-  const { dailyUsed, bought } = await getFlyCounts(token);
-  const dailyRemaining = Math.max(0, DAILY_FREE_FLIES - dailyUsed);
-  res.json({ dailyUsed, dailyRemaining, bought, total: dailyRemaining + bought, paymentEnabled });
+  try {
+    const { dailyUsed, bought } = await getFlyCounts(token);
+    const dailyRemaining = Math.max(0, DAILY_FREE_FLIES - dailyUsed);
+    res.json({ dailyUsed, dailyRemaining, bought, total: dailyRemaining + bought, paymentEnabled });
+  } catch (err) {
+    console.error(`[${new Date().toISOString()}] getFlyCounts error:`, err.message);
+    res.json({ dailyUsed: 0, dailyRemaining: DAILY_FREE_FLIES, bought: 0, total: DAILY_FREE_FLIES, paymentEnabled });
+  }
 });
 
 // ── POST /api/checkout ────────────────────────────────────
@@ -279,7 +284,13 @@ app.post('/api/ask', async (req, res) => {
     return res.status(400).json({ error: 'The swamp does not know you.' });
   }
 
-  const flyResult = await consumeFly(token);
+  let flyResult;
+  try {
+    flyResult = await consumeFly(token);
+  } catch (err) {
+    console.error(`[${new Date().toISOString()}] consumeFly error:`, err.message);
+    flyResult = { consumed: true, dailyRemaining: 0, bought: 0 }; // fail open
+  }
   if (!flyResult.consumed) {
     return res.status(429).json({ error: NO_FLIES_MSG, noFlies: true });
   }
